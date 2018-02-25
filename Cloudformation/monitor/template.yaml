@@ -1,0 +1,85 @@
+AWSTemplateFormatVersion : '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+
+Description: Test script to monitor URL
+Resources:
+  vpctest: 
+    Type: "AWS::IAM::Role"
+    Properties: 
+      AssumeRolePolicyDocument: 
+        Version: "2012-10-17"
+        Statement: 
+          - 
+            Effect: "Allow"
+            Principal: 
+              Service: 
+              - "lambda.amazonaws.com"
+            Action: 
+              - "sts:AssumeRole"
+      Path: "/"
+      Policies: 
+      - 
+        PolicyName: "vpc-test"
+        PolicyDocument: 
+          Version: "2012-10-17"
+          Statement: 
+            - 
+              Effect: "Allow"
+              Action:
+                - logs:PutLogEvents
+                - logs:CreateLogGroup
+                - logs:CreateLogStream
+                - ec2:DeleteNetworkInterface
+                - ec2:DescribeNetworkInterfaces
+                - ec2:CreateNetworkInterface
+                - ec2:DescribeVpcs
+                - ec2:DescribeSubnets
+                - ec2:DescribeSecurityGroups
+              Resource: "*"
+  
+  # Lambda
+  lambdaHello:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: lambda-hello-there
+      Runtime: python3.6
+      Handler: lambda_function.lambda_handler
+      CodeUri: ./
+      Timeout: 60
+      Role: 
+        Fn::GetAtt: [ vpctest, "Arn" ]
+      Environment:
+        Variables:
+          REGION: !Sub ${AWS::Region}
+          # Change this to access other resources
+          HIT_URL: http://172.31.93.205
+          # For slack notification
+          SLACK_URL: https://www.slack.com
+      VpcConfig:
+        SubnetIds:
+          - subnet-34413450
+        SecurityGroupIds:
+          - sg-716c0704
+
+  ScheduledRule: 
+    Type: "AWS::Events::Rule"
+    Properties: 
+      Description: "ScheduledRule"
+      ScheduleExpression: "rate(1 minute)"
+      State: "ENABLED"
+      Targets: 
+        - 
+          Arn: 
+            Fn::GetAtt: [ lambdaHello , "Arn" ]
+          Id: 
+            Ref: lambdaHello
+
+  PermissionForEventsToInvokeLambda:
+    Type: "AWS::Lambda::Permission"
+    Properties: 
+      FunctionName: 
+        Fn::GetAtt: [ lambdaHello , "Arn" ]
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: 
+        Fn::GetAtt: [ ScheduledRule , "Arn" ]
